@@ -559,7 +559,8 @@
 
 /* Mid-run steering: hidden unless a turn is streaming (toggled by
    refreshRunningState). Deliberately quieter than Send/Stop — steering is an
-   optional refinement, not the primary action. */
+   optional refinement, not the primary action. The button stays visible for the
+   whole turn; steering does not dismiss it. */
 .hermes-steer-btn {
   display: none;
   padding: 4px 12px;
@@ -573,31 +574,16 @@
   background: var(--background-modifier-hover);
 }
 
-/* Inline marker showing a steer was accepted into the live run. */
-.hermes-steer-note {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 6px 0;
-  padding: 6px 10px;
-  border-left: 2px solid var(--interactive-accent);
-  border-radius: var(--radius-s, 4px);
-  background: var(--background-secondary);
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
+/* Transient acknowledgment after a steer is accepted: a brief accent tint, with
+   no inline chat message. The class is cleared when the turn ends. */
+.hermes-steer-btn.is-steered {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  transition: background 200ms ease;
 }
 
-.hermes-steer-note-label {
-  flex-shrink: 0;
-  font-variant: small-caps;
-  font-weight: 600;
-  color: var(--interactive-accent);
-}
-
-.hermes-steer-note-text {
-  min-width: 0;
-  word-break: break-word;
-  color: var(--text-normal);
+.hermes-steer-btn.is-steered:hover {
+  background: var(--interactive-accent-hover);
 }
 
 /* While a turn is streaming, the same button switches to "Stop" in place —

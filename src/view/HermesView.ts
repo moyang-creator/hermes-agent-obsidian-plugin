@@ -332,8 +332,13 @@ export class HermesView extends ItemView {
     const running = !!this.activeTab()?.handle;
     this.sendBtn.setText(running ? "Stop" : "Send");
     this.sendBtn.classList.toggle("is-running", running);
-    // The Steer button only makes sense while a turn is in flight.
-    if (this.steerBtn) this.steerBtn.toggleClass("is-visible", running);
+    // The Steer button only makes sense while a turn is in flight, and it stays
+    // visible for the whole turn — steering does not dismiss it, so the user can
+    // send further corrections before the agent reaches its next tool boundary.
+    if (this.steerBtn) {
+      this.steerBtn.toggleClass("is-visible", running);
+      if (!running) this.steerBtn.removeClass("is-steered");
+    }
     this.statusEl.setText(running ? "Hermes is thinking..." : "");
   }
 
@@ -577,16 +582,11 @@ export class HermesView extends ItemView {
       return;
     }
     this.inputEl.value = "";
-    this.renderSteerNote(tab, text);
+    // Deliberately no inline marker: a steer is silent mid-run guidance. The
+    // button stays visible so further corrections can be sent during the same
+    // turn; it only hides when the turn actually ends (handle cleared).
+    this.steerBtn?.addClass("is-steered");
     this.scrollToBottom(tab);
-  }
-
-  /** Render the steering instruction as an inline user-style marker. */
-  private renderSteerNote(tab: Tab, text: string): void {
-    const wrap = tab.bodyEl.createDiv({ cls: "hermes-steer-note" });
-    const label = wrap.createSpan({ cls: "hermes-steer-note-label", text: "steer" });
-    label.setAttr("aria-label", "mid-run guidance injected at the next tool boundary");
-    wrap.createSpan({ cls: "hermes-steer-note-text", text });
   }
 
   private async onSend(): Promise<void> {

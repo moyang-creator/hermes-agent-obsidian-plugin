@@ -557,6 +557,49 @@
   padding: 4px 14px;
 }
 
+/* Mid-run steering: hidden unless a turn is streaming (toggled by
+   refreshRunningState). Deliberately quieter than Send/Stop — steering is an
+   optional refinement, not the primary action. */
+.hermes-steer-btn {
+  display: none;
+  padding: 4px 12px;
+}
+
+.hermes-steer-btn.is-visible {
+  display: inline-block;
+}
+
+.hermes-steer-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Inline marker showing a steer was accepted into the live run. */
+.hermes-steer-note {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--interactive-accent);
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.hermes-steer-note-label {
+  flex-shrink: 0;
+  font-variant: small-caps;
+  font-weight: 600;
+  color: var(--interactive-accent);
+}
+
+.hermes-steer-note-text {
+  min-width: 0;
+  word-break: break-word;
+  color: var(--text-normal);
+}
+
 /* While a turn is streaming, the same button switches to "Stop" in place —
    give it a distinct warning tint so the state change is obvious. */
 .hermes-send-btn.is-running {

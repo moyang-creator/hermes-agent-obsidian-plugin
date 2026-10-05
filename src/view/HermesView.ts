@@ -68,6 +68,7 @@ export class HermesView extends ItemView {
   private bodyHostEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
+  private steerBtn!: HTMLButtonElement;
   private includeNoteToggle!: HTMLInputElement;
   private includeSelectionToggle!: HTMLInputElement;
   private statusEl!: HTMLElement;
@@ -147,7 +148,11 @@ export class HermesView extends ItemView {
     this.inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        void this.onSend();
+        // While a turn is streaming, Enter steers it (injects guidance at the
+        // next tool boundary) instead of starting a competing turn. Shift+Enter
+        // still inserts a newline; the Stop button still hard-cancels.
+        if (this.activeTab()?.handle) void this.onSteer();
+        else void this.onSend();
       }
     });
     // Typing counts as "still using" a pending selection snapshot — keeps
@@ -188,6 +193,11 @@ export class HermesView extends ItemView {
 
     const rightEl = inputActions.createDiv({ cls: "hermes-input-actions-right" });
     this.statusEl = rightEl.createSpan({ cls: "hermes-status" });
+    // Steer: only visible while a turn is streaming. Injects the input box's
+    // text into the live run at its next tool boundary (no interrupt, no new
+    // turn). Enter in the input does the same thing.
+    this.steerBtn = rightEl.createEl("button", { cls: "hermes-steer-btn", text: "Steer" });
+    this.steerBtn.onclick = () => void this.onSteer();
     // Dual-purpose: "Send" while idle, becomes "Stop" in place once a turn
     // is streaming (previously a separate header button, easy to miss).
     this.sendBtn = rightEl.createEl("button", { cls: "hermes-send-btn", text: "Send" });
@@ -322,6 +332,8 @@ export class HermesView extends ItemView {
     const running = !!this.activeTab()?.handle;
     this.sendBtn.setText(running ? "Stop" : "Send");
     this.sendBtn.classList.toggle("is-running", running);
+    // The Steer button only makes sense while a turn is in flight.
+    if (this.steerBtn) this.steerBtn.toggleClass("is-visible", running);
     this.statusEl.setText(running ? "Hermes is thinking..." : "");
   }
 
@@ -536,6 +548,45 @@ export class HermesView extends ItemView {
   /** Public entry used by commands: push a prepared prompt into the active tab. */
   submitPrompt(prompt: string, display?: string, ctx?: NoteContext): void {
     void this.runTurn(prompt, display, ctx);
+  }
+
+  /**
+   * Inject the input box's text into the streaming run as mid-run guidance.
+   * Sends the raw text only — note/selection context is deliberately NOT
+   * attached, since a steer is a course correction on work already in flight,
+   * not a new grounded question. Falls back to a normal send when nothing is
+   * streaming (so a stray Enter is never swallowed).
+   */
+  private async onSteer(): Promise<void> {
+    const tab = this.activeTab();
+    const text = this.inputEl.value.trim();
+    if (!tab?.handle) {
+      if (text) await this.onSend();
+      return;
+    }
+    if (!text) return;
+    const handle = tab.handle;
+    if (!handle.steer) {
+      new Notice("This transport cannot steer a running turn. Press Stop, then send.");
+      return;
+    }
+    const ok = handle.steer(text);
+    if (!ok) {
+      new Notice("Hermes hasn't started the turn yet — message queued as a new turn.");
+      await this.onSend();
+      return;
+    }
+    this.inputEl.value = "";
+    this.renderSteerNote(tab, text);
+    this.scrollToBottom(tab);
+  }
+
+  /** Render the steering instruction as an inline user-style marker. */
+  private renderSteerNote(tab: Tab, text: string): void {
+    const wrap = tab.bodyEl.createDiv({ cls: "hermes-steer-note" });
+    const label = wrap.createSpan({ cls: "hermes-steer-note-label", text: "steer" });
+    label.setAttr("aria-label", "mid-run guidance injected at the next tool boundary");
+    wrap.createSpan({ cls: "hermes-steer-note-text", text });
   }
 
   private async onSend(): Promise<void> {

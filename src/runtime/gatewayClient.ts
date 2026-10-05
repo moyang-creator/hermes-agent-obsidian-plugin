@@ -54,6 +54,14 @@ export interface StreamCallbacks {
 
 export interface ChatHandle {
   abort(): void;
+  /**
+   * Inject mid-run guidance without interrupting the turn. The text is
+   * delivered at the next tool boundary (see the gateway's
+   * POST /v1/runs/{id}/steer). Returns false when the run has no live id yet
+   * (e.g. the effort is still being negotiated) or the transport is Chat
+   * Completions, where steering does not exist.
+   */
+  steer?(text: string): boolean;
 }
 
 export interface TestResult {
@@ -268,6 +276,11 @@ export class HermesGatewayClient {
     const reqs: Array<{ destroy(): void }> = [];
     let aborted = false;
     let finished = false;
+    // Live run id for the runs transport, hoisted so the returned handle can
+    // steer the run while it is still streaming. Empty on the Chat
+    // Completions transport, where there is no run to steer.
+    let activeRunId = "";
+    let apiUrl = "";
 
     const finishOnce = (error?: string, sessionId?: string) => {
       if (finished || aborted) return;
@@ -286,6 +299,12 @@ export class HermesGatewayClient {
             /* ignore */
           }
         }
+      },
+      steer: (text: string) => {
+        const trimmed = text.trim();
+        if (!trimmed || aborted || finished || !activeRunId || !apiUrl) return false;
+        this.postRunSteer(apiUrl, activeRunId, trimmed);
+        return true;
       }
     };
 
@@ -303,7 +322,10 @@ export class HermesGatewayClient {
       }
       if (aborted) return;
       if (useRuns) {
-        this.startRuns(input, history, cb, resumeSessionId, reqs, () => aborted, finishOnce);
+        this.startRuns(input, history, cb, resumeSessionId, reqs, () => aborted, finishOnce, (url, id) => {
+          apiUrl = url;
+          activeRunId = id;
+        });
       } else {
         this.startChat(input, history, cb, resumeSessionId, reqs, () => aborted, finishOnce);
       }
@@ -468,7 +490,8 @@ export class HermesGatewayClient {
     resumeSessionId: string | undefined,
     reqs: Array<{ destroy(): void }>,
     isAborted: () => boolean,
-    finish: (error?: string, sessionId?: string) => void
+    finish: (error?: string, sessionId?: string) => void,
+    onRunId?: (apiUrl: string, runId: string) => void
   ): void {
     const s = this.getSettings();
     const apiUrl = this.base();
@@ -655,6 +678,8 @@ export class HermesGatewayClient {
             fallback();
             return;
           }
+          // Publish the live run id so the caller's handle can steer it.
+          onRunId?.(apiUrl, runId);
           openEventStream(runId);
         });
       }
@@ -677,6 +702,30 @@ export class HermesGatewayClient {
     try {
       const req = this.requester(url).request(url, { method: "POST", headers: this.authHeaders() });
       req.on("error", () => {});
+      req.end();
+    } catch {
+      /* best effort */
+    }
+  }
+
+  /**
+   * Inject mid-run guidance at the next tool boundary (POST /v1/runs/{id}/steer).
+   * Does NOT interrupt the turn or start a new one. Best effort: the gateway
+   * answers 409 run_not_accepting_steer once the run has finished, which we
+   * silently ignore here.
+   */
+  private postRunSteer(apiUrl: string, runId: string, text: string): void {
+    const url = `${apiUrl}/v1/runs/${encodeURIComponent(runId)}/steer`;
+    try {
+      const payload = Buffer.from(JSON.stringify({ input: text }), "utf-8");
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Content-Length": String(payload.length),
+        ...this.authHeaders()
+      };
+      const req = this.requester(url).request(url, { method: "POST", headers });
+      req.on("error", () => {});
+      req.write(payload);
       req.end();
     } catch {
       /* best effort */
